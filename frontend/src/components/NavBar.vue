@@ -100,7 +100,7 @@ onBeforeUnmount(() => {
 
 .navbar li {
     color: #575B5D;
-    margin: 0 .5em;
+    margin: 0.5em;
     font-size: 1.2em;
 }
 
@@ -150,19 +150,27 @@ onBeforeUnmount(() => {
 }
 
 .mobile-menu li {
-    border-bottom: 1px solid #f0f0f0;
+    display: block;
+    padding: 5px 20px;
+    color: #666;
+    font-size: 20px;
+    transition: background-color 0.3s ease;
+    text-decoration: none;
+    cursor: pointer;
 }
 
-.mobile-menu li:last-child {
-    border-bottom: none;
+.mobile-menu li:hover {
+    background-color: #f8f8f8;
+    color: #333;
+    font-weight: bold;
 }
 
 .mobile-menu a {
     display: block;
-    padding: 15px 20px;
+    padding: 5px 20px;
     text-decoration: none;
     color: #666;
-    font-size: 16px;
+    font-size: 20px;
     transition: background-color 0.3s ease;
 }
 
@@ -185,6 +193,17 @@ onBeforeUnmount(() => {
 
 /* Mobile styles */
 @media (max-width: 767px) {
+
+    .mobile-menu ul {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    }
+
+    .mobile-menu li {
+        width: 100%;
+    }
+    
     .options {
         display: none;
     }

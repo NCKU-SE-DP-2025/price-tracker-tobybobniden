@@ -6,36 +6,37 @@
                 <h2>{{ news.title }}</h2>
                 <p class="time">{{ news.time }}</p>
                 <p>原文連結：<a :href="news.url" target="_blank">{{news.url}}</a></p>
-                <p v-for="(paragraph, index) in formattedContent" :key="index">{{ paragraph }}</p>
+                <p v-for="paragraph, index in formattedContent" :key="index">{{ paragraph }}</p>
             </div>
+
         </div>
     </div>
 </template>
 
-<script setup>
-import { computed } from 'vue';
-
-const props = defineProps({
-    news: {
-        type: Object,
-        required: true
+<script>
+export default {
+    props: {
+        news: {
+            type: Object,
+            required: true
+        },
+        visible: {
+            type: Boolean,
+            default: false
+        }
     },
-    visible: {
-        type: Boolean,
-        default: false
+    methods: {
+        close() {
+            this.$emit('update:visible', false);
+        }
+    },
+    computed:{
+        formattedContent() {
+            if(!this.news.content) return '';
+            return this.news.content.split('\r\n');
+        }
     }
-});
-
-const emit = defineEmits(['update:visible']);
-
-function close() {
-    emit('update:visible', false);
-}
-
-const formattedContent = computed(() => {
-    if (!props.news.content) return '';
-    return props.news.content.split('\r\n');
-});
+};
 </script>
 
 <style scoped>

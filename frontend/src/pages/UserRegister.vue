@@ -20,42 +20,47 @@
     </div>
 </template>
 
-<script setup>
-import { ref } from 'vue';
+<script>
 import { useAuthStore } from '@/stores/auth';
 
-const username = ref('');
-const password = ref('');
-const passwordConfirm = ref('');
-const errors = ref({
-    username: '',
-    password: '',
-    passwordConfirm: ''
-});
+export default {
+    data() {
+        return {
+            username: '',
+            password: '',
+            passwordConfirm: '',
+            errors: {
+                username: '',
+                password: '',
+                passwordConfirm: ''
+            }
+        };
+    },
+    methods: {
+        register() {
+            if (this.validate()) {
+                const userStore = useAuthStore();
+                userStore.register(this.username, this.password);
+            }
+        },
+        validate() {
+            let valid = true;
+            this.errors = { username: '', password: '', passwordConfirm: '' };
 
-function validate() {
-    let valid = true;
-    errors.value = { username: '', password: '', passwordConfirm: '' };
-
-    if (!username.value.trim()) {
-        errors.value.username = 'Username is required.';
-        valid = false;
-    }
-    if (!password.value) {
-        errors.value.password = 'Password is required.';
-        valid = false;
-    }
-    if (password.value !== passwordConfirm.value) {
-        errors.value.passwordConfirm = 'Passwords do not match!';
-        valid = false;
-    }
-    return valid;
-}
-
-function register() {
-    if (validate()) {
-        const userStore = useAuthStore();
-        userStore.register(username.value, password.value);
+            if (!this.username.trim()) {
+                this.errors.username = 'Username is required.';
+                valid = false;
+            }
+            if (!this.password) {
+                this.errors.password = 'Password is required.';
+                valid = false;
+            }
+            if (this.password !== this.passwordConfirm) {
+                this.errors.passwordConfirm = 'Passwords do not match!';
+                valid = false;
+            }
+            return valid;
+        }
     }
 }
 </script>

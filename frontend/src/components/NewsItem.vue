@@ -23,39 +23,42 @@
     </div>
 </template>
 
-<script setup>
-import { computed } from 'vue';
+<script>
 import { useAuthStore } from '@/stores/auth';
 import { useNewsStore } from '@/stores/news';
-
-const props = defineProps({
-    news: {
-        type: Object,
-        required: true
+export default {
+    props: {
+        news: {
+            type: Object,
+            required: true
+        }
+    },
+    computed: {
+        hasDetails() {
+            return this.news.reason && this.news.summary;
+        },
+        shortContent() {
+            return this.news.content.length > 200 ? this.news.content.substr(0, 200) + '...' : this.news.content;
+        },
+        isLoggedIn(){
+            const userStore = useAuthStore();
+            return userStore.isLoggedIn;
+        }
+    },
+    methods:{
+        showDialog(){
+            this.$emit('show-dialog');
+        },
+        fetchSummary(){
+            if(this.isLoading) return;
+            this.isLoading = true;
+            this.$emit('fetch-summary');
+        },
+        toggleUpvote(newsId){
+            useNewsStore().toggleUpvote(newsId);
+        }
     }
-});
-
-const emit = defineEmits(['show-dialog', 'fetch-summary']);
-
-const hasDetails = computed(() => props.news.reason && props.news.summary);
-const shortContent = computed(() =>
-    props.news.content.length > 200 ? props.news.content.substr(0, 200) + '...' : props.news.content
-);
-
-const userStore = useAuthStore();
-const isLoggedIn = computed(() => userStore.isLoggedIn);
-
-function showDialog() {
-    emit('show-dialog');
-}
-
-function fetchSummary() {
-    emit('fetch-summary');
-}
-
-function toggleUpvote(newsId) {
-    useNewsStore().toggleUpvote(newsId);
-}
+};
 </script>
 
 <style scoped>

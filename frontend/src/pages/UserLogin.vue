@@ -15,18 +15,28 @@
     </div>
 </template>
 
-<script setup>
-import { ref, computed } from 'vue';
+<script>
 import { useAuthStore } from '@/stores/auth';
 
-const username = ref('');
-const password = ref('');
-const userStore = useAuthStore();
-
-const loginError = computed(() => userStore.getLoginError);
-
-function login() {
-    userStore.login(username.value, password.value);
+export default {
+    data() {
+        return {
+            username: '',
+            password: ''
+        };
+    },
+    methods: {
+        login() {
+            const userStore = useAuthStore();
+            userStore.login(this.username, this.password);
+        }
+    },
+    computed: {
+        loginError(){
+            const userStore = useAuthStore();
+            return userStore.getLoginError;
+        }
+    }
 }
 </script>
 

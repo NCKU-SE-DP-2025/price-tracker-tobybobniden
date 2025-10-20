@@ -127,11 +127,11 @@ from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
 
-def add_new(news_data):
+def add_news_article(news_data):
     """
-    add new to db
-    :param news_data: news info
-    :return:
+    Add news article to database
+    :param news_data: news info dictionary
+    :return: None
     """
     session = Session()
     session.add(NewsArticle(
@@ -146,30 +146,29 @@ def add_new(news_data):
     session.close()
 
 
-def get_new_info(search_term, is_initial=False):
+def fetch_raw_news_data(search_term, is_initial=False):
     """
-    get new
-
-    :param search_term:
-    :param is_initial:
-    :return:
+    從新聞來源獲取原始新聞資料
+    :param search_term: 搜尋關鍵字
+    :param is_initial: 是否為初始化抓取
+    :return: 新聞資料列表
     """
     all_news_data = []
     # iterate pages to get more news data, not actually get all news data
     if is_initial:
-        a = []
-        for p in range(1, 10):
-            p2 = {
-                "page": p,
+        page_results = []
+        for page_num in range(1, 10):
+            query_params = {
+                "page": page_num,
                 "id": f"search:{quote(search_term)}",
                 "channelId": 2,
                 "type": "searchword",
             }
-            response = requests.get("https://udn.com/api/more", params=p2)
-            a.append(response.json()["lists"])
-
-        for l in a:
-            all_news_data.append(l)
+            response = requests.get("https://udn.com/api/more", params=query_params)
+            page_results.append(response.json()["lists"])
+        
+        for news_list in page_results:
+            all_news_data.append(news_list)
     else:
         p = {
             "page": 1,
@@ -182,14 +181,13 @@ def get_new_info(search_term, is_initial=False):
         all_news_data = response.json()["lists"]
     return all_news_data
 
-def get_new(is_initial=False):
+def process_and_store_news(is_initial=False):
     """
-    get new info
-
-    :param is_initial:
-    :return:
+    Fetch and process news articles
+    :param is_initial: whether to fetch initial data
+    :return: None
     """
-    news_data = get_new_info("價格", is_initial=is_initial)
+    news_data = fetch_raw_news_data("價格", is_initial=is_initial)
     for news in news_data:
         title = news["title"]
         m = [
@@ -240,7 +238,7 @@ def get_new(is_initial=False):
             result = json.loads(result)
             detailed_news["summary"] = result["影響"]
             detailed_news["reason"] = result["原因"]
-            add_new(detailed_news)
+            add_news_article(detailed_news)
 
 
 @app.on_event("startup")
@@ -248,9 +246,9 @@ def start_scheduler():
     db = SessionLocal()
     if db.query(NewsArticle).count() == 0:
         # should change into simple factory pattern
-        get_new()
+        process_and_store_news()
     db.close()
-    bgs.add_job(get_new, "interval", minutes=100)
+    bgs.add_job(process_and_store_news, "interval", minutes=100)
     bgs.start()
 
 
@@ -272,15 +270,14 @@ def session_opener():
 
 
 
-def verify(p1, p2):
-    return pwd_context.verify(p1, p2)
+def verify_password(plain_password, hashed_password):   
+    return pwd_context.verify(plain_password, hashed_password)
 
-
-def check_user_password_is_correct(db, n, pwd):
-    OuO = db.query(User).filter(User.username == n).first()
-    if not verify(pwd, OuO.hashed_password):
+def authenticate_user(db, username, password):    # 原 check_user_password_is_correct
+    user = db.query(User).filter(User.username == username).first()    # 原 OuO
+    if not verify_password(password, user.hashed_password):
         return False
-    return OuO
+    return user
 
 
 def authenticate_user_token(
@@ -309,7 +306,7 @@ async def login_for_access_token(
         form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(session_opener)
 ):
     """login"""
-    user = check_user_password_is_correct(db, form_data.username, form_data.password)
+    user = authenticate_user(db, form_data.username, form_data.password)
     access_token = create_access_token(
         data={"sub": str(user.username)}, expires_delta=timedelta(minutes=30)
     )
@@ -330,7 +327,10 @@ def create_user(user: UserAuthSchema, db: Session = Depends(session_opener)):
 
 
 @app.get("/api/v1/users/me")
-def read_users_me(user=Depends(authenticate_user_token)):
+def read_current_user(user=Depends(get_user_authentication_token)):
+    """
+    讀取目前登入的使用者資訊
+    """
     return {"username": user.username}
 
 
@@ -355,19 +355,18 @@ def get_article_upvote_details(article_id, uid, db):
 
 
 @app.get("/api/v1/news/news")
-def read_news(db=Depends(session_opener)):
+def get_news_articles(db=Depends(session_opener)):    # 原 read_news
     """
-    read new
-
-    :param db:
-    :return:
+    Get all news articles
+    :param db: database session
+    :return: list of news articles with upvote info
     """
-    news = db.query(NewsArticle).order_by(NewsArticle.time.desc()).all()
+    news_articles = db.query(NewsArticle).order_by(NewsArticle.time.desc()).all()
     result = []
-    for n in news:
-        upvotes, upvoted = get_article_upvote_details(n.id, None, db)
+    for article in news_articles:
+        upvotes_count, is_upvoted = get_article_upvote_details(article.id, None, db)
         result.append(
-            {**n.__dict__, "upvotes": upvotes, "is_upvoted": upvoted}
+            {**article.__dict__, "upvotes": upvotes_count, "is_upvoted": is_upvoted}
         )
     return result
 
@@ -420,7 +419,7 @@ async def search_news(request: PromptRequest):
     )
     keywords = completion.choices[0].message.content
     # should change into simple factory pattern
-    news_items = get_new_info(keywords, is_initial=False)
+    news_items = fetch_raw_news_data(keywords, is_initial=False)
     for news in news_items:
         try:
             response = requests.get(news["titleLink"])
@@ -487,25 +486,25 @@ def upvote_article(
     return {"message": message}
 
 
-def toggle_upvote(n_id, u_id, db):
+def toggle_upvote(article_id, user_id, db):    
     existing_upvote = db.execute(
         select(user_news_association_table).where(
-            user_news_association_table.c.news_articles_id == n_id,
-            user_news_association_table.c.user_id == u_id,
+            user_news_association_table.c.news_articles_id == article_id,
+            user_news_association_table.c.user_id == user_id,
         )
     ).scalar()
 
     if existing_upvote:
         delete_stmt = delete(user_news_association_table).where(
-            user_news_association_table.c.news_articles_id == n_id,
-            user_news_association_table.c.user_id == u_id,
+            user_news_association_table.c.news_articles_id == article_id,
+            user_news_association_table.c.user_id == user_id,
         )
         db.execute(delete_stmt)
         db.commit()
         return "Upvote removed"
     else:
         insert_stmt = insert(user_news_association_table).values(
-            news_articles_id=n_id, user_id=u_id
+            news_articles_id=article_id, user_id=user_id
         )
         db.execute(insert_stmt)
         db.commit()

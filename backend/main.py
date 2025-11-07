@@ -24,7 +24,7 @@ from urllib.parse import quote
 from bs4 import BeautifulSoup
 
 # ----------------------------
-# 原來的 DB 與 Model 宣告（保留在檔案開頭）
+# 原始的 DB 與 Model 宣告
 # ----------------------------
 Base = declarative_base()
 
@@ -64,9 +64,25 @@ class NewsArticle(Base):
     )
 
 
-# ----------------------------
-# 全域設定與 engine（保留）
-# ----------------------------
+# -------------------------------
+# Pydantic Schema Declaration
+# -------------------------------
+class UserAuthSchema(BaseModel):
+    username: str
+    password: str
+
+
+class PromptRequest(BaseModel):
+    prompt: str
+
+
+class NewsSummaryRequestSchema(BaseModel):
+    content: str
+
+
+# -------------------------------
+# global settings and engine
+# -------------------------------
 engine = create_engine("sqlite:///news_database.db", echo=True)
 
 Base.metadata.create_all(engine)
@@ -92,7 +108,7 @@ app.add_middleware(
 )
 
 # ----------------------------
-# 工具 / 共享元件（保留變數名稱）
+# Tools / Shared Components
 # ----------------------------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/users/login")
@@ -105,7 +121,7 @@ _id_counter = itertools.count(start=1000000)
 # ----------------------------
 class DatabaseManager:
     """
-    負責 DB engine, session 工廠與相關操作
+    負責 DB engine, session 工作與相關操作
     """
 
     def __init__(self, engine):
@@ -119,7 +135,6 @@ class DatabaseManager:
         finally:
             session.close()
 
-    # 提供一個取得 Session 的 helper（舊程式碼共用）
     def get_session(self):
         return Session(bind=self.engine)
 
@@ -160,12 +175,11 @@ class UserAuthService:
 
 class NewsService:
     """
-    將新聞抓取、處理、儲存與搜尋等邏輯封裝
+    將新聞抓取、處理、儲存與搜尋等邏輯包裝
     """
 
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
-        # 使用外部 OpenAI 客戶端時，保留現有寫法（api_key 放 "xxx" 作為 placeholder）
         self.openai_api_key = "xxx"
 
     def add_news_article(self, news_data):
@@ -180,7 +194,7 @@ class NewsService:
                 url=news_data["url"],
                 title=news_data["title"],
                 time=news_data["time"],
-                content=" ".join(news_data["content"]),  # 將內容list轉換為字串
+                content=" ".join(news_data["content"]),
                 summary=news_data.get("summary", ""),
                 reason=news_data.get("reason", ""),
             )
@@ -190,13 +204,12 @@ class NewsService:
 
     def fetch_raw_news_data(self, search_term, is_initial=False):
         """
-        從新聞來源獲取原始新聞資料
+        從新聞來源抓取原始新聞資料
         :param search_term: 搜尋關鍵字
         :param is_initial: 是否為初始化抓取
         :return: 新聞資料列表
         """
         all_news_data = []
-        # iterate pages to get more news data, not actually get all news data
         if is_initial:
             page_results = []
             for page_num in range(1, 10):
@@ -235,7 +248,7 @@ class NewsService:
             prompt_message = [
                 {
                     "role": "system",
-                    "content": "你是一個關聯度評估機器人，請評估新聞標題是否與「民生用品的價格變化」相關，並給予'high'、'medium'、'low'評價。(僅需回答'high'、'medium'、'low'三個詞之一)",
+                    "content": "你是一個關鍵度評估機器人，請評估新聞標題是否與「民生用品的價格變化」相關，並給予'high'、'medium'、'low'評價。(僅需回答'high'、'medium'、'low'三個詞之一)",
                 },
                 {"role": "user", "content": f"{title}"},
             ]
@@ -247,10 +260,8 @@ class NewsService:
             if relevance == "high":
                 response = requests.get(news["titleLink"])
                 soup = BeautifulSoup(response.text, "html.parser")
-                # 標題
                 title = soup.find("h1", class_="article-content__title").text
                 time = soup.find("time", class_="article-content__time").text
-                # 定位到包含文章内容的 <section>
                 content_section = soup.find("section", class_="article-content__editor")
 
                 paragraphs = [
@@ -300,7 +311,7 @@ class NewsService:
 
     def search_news(self, prompt: str):
         """
-        使用 OpenAI 提取關鍵字後搜尋（原 search_news 的邏輯）
+        使用 OpenAI 提取關鍵字後搜尋
         """
         message = [
             {
@@ -321,10 +332,8 @@ class NewsService:
             try:
                 response = requests.get(news["titleLink"])
                 soup = BeautifulSoup(response.text, "html.parser")
-                # 標題
                 title = soup.find("h1", class_="article-content__title").text
                 time = soup.find("time", class_="article-content__time").text
-                # 定位到包含文章内容的 <section>
                 content_section = soup.find("section", class_="article-content__editor")
 
                 paragraphs = [
@@ -388,13 +397,13 @@ class NewsService:
             db.commit()
             return "Article upvoted"
 
-    def news_exists(self, news_id_2, db: Session):
-        return db.query(NewsArticle).filter_by(id=news_id_2).first() is not None
+    def news_exists(self, news_id, db: Session):
+        return db.query(NewsArticle).filter_by(id=news_id).first() is not None
 
 
 class SchedulerService:
     """
-    封裝與排程、FastAPI 啟動/停止相關的邏輯
+    包裝與排程、FastAPI 啟動/停止相關的邏輯
     """
 
     def __init__(self, bgs: BackgroundScheduler, db_manager: DatabaseManager, news_service: NewsService):
@@ -405,7 +414,6 @@ class SchedulerService:
     def start_scheduler(self):
         db = SessionLocal()
         if db.query(NewsArticle).count() == 0:
-            # should change into simple factory pattern
             self.news_service.process_and_store_news()
         db.close()
         self.bgs.add_job(self.news_service.process_and_store_news, "interval", minutes=100)
@@ -415,233 +423,188 @@ class SchedulerService:
         self.bgs.shutdown()
 
 
-class AppFactory:
+class APIRouteManager:
     """
-    保留來做應用層級整合（目前主要為示範用途）
+    管理所有 API 路由與端點
     """
 
-    def __init__(self, app: FastAPI, db_manager: DatabaseManager, auth_service: UserAuthService, news_service: NewsService, scheduler_service: SchedulerService):
+    def __init__(self, app: FastAPI, db_manager: DatabaseManager, auth_service: UserAuthService, news_service: NewsService):
         self.app = app
         self.db_manager = db_manager
         self.auth_service = auth_service
         self.news_service = news_service
-        self.scheduler_service = scheduler_service
 
-    # 可擴充：註冊路由、middleware 等（目前檔案已以頂層函數保留）
-    def register(self):
-        pass
+    def register_routes(self):
+        """註冊所有 API 路由"""
+        self._register_auth_routes()
+        self._register_news_routes()
+        self._register_price_routes()
+
+    def _register_auth_routes(self):
+        """註冊認證相關的路由"""
+        # 建立閉包來保持 self 的參考
+        session_opener = self._session_opener
+        authenticate_user_token = self._authenticate_user_token
+        
+        @self.app.post("/api/v1/users/login")
+        async def login_for_access_token(
+                form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(session_opener)
+        ):
+            """login"""
+            user = self.authenticate_user(db, form_data.username, form_data.password)
+            access_token = self.create_access_token(
+                data={"sub": str(user.username)}, expires_delta=timedelta(minutes=30)
+            )
+            return {"access_token": access_token, "token_type": "bearer"}
+
+        @self.app.post("/api/v1/users/register")
+        def create_user(user: UserAuthSchema, db: Session = Depends(session_opener)):
+            """create user"""
+            hashed_password = pwd_context.hash(user.password)
+            db_user = User(username=user.username, hashed_password=hashed_password)
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+            return db_user
+
+        @self.app.get("/api/v1/users/me")
+        def read_current_user(user=Depends(authenticate_user_token)):
+            """
+            讀取目前登入的使用者資訊
+            """
+            return {"username": user.username}
+
+    def _register_news_routes(self):
+        """註冊新聞相關的路由"""
+        # 建立閉包來保持 self 的參考
+        session_opener = self._session_opener
+        authenticate_user_token = self._authenticate_user_token
+        
+        @self.app.get("/api/v1/news/news")
+        def get_news_articles(db=Depends(session_opener)):
+            """
+            Get all news articles
+            :param db: database session
+            :return: list of news articles with upvote info
+            """
+            news_articles = db.query(NewsArticle).order_by(NewsArticle.time.desc()).all()
+            result = []
+            for article in news_articles:
+                upvotes_count, is_upvoted = self.get_article_upvote_details(article.id, None, db)
+                result.append(
+                    {**article.__dict__, "upvotes": upvotes_count, "is_upvoted": is_upvoted}
+                )
+            return result
+
+        @self.app.get("/api/v1/news/user_news")
+        def read_user_news(
+                db=Depends(session_opener),
+                user=Depends(authenticate_user_token)
+        ):
+            """
+            read user news
+
+            :param db:
+            :param user:
+            :return:
+            """
+            news = db.query(NewsArticle).order_by(NewsArticle.time.desc()).all()
+            result = []
+            for article in news:
+                upvotes, upvoted = self.get_article_upvote_details(article.id, user.id, db)
+                result.append(
+                    {
+                        **article.__dict__,
+                        "upvotes": upvotes,
+                        "is_upvoted": upvoted,
+                    }
+                )
+            return result
+
+        @self.app.post("/api/v1/news/search_news")
+        async def search_news(request: PromptRequest):
+            prompt = request.prompt
+            return self.news_service.search_news(prompt)
+
+        @self.app.post("/api/v1/news/news_summary")
+        async def news_summary(
+                payload: NewsSummaryRequestSchema, u=Depends(authenticate_user_token)
+        ):
+            response = self.news_service.news_summary(payload.content)
+            return response
+
+        @self.app.post("/api/v1/news/{id}/upvote")
+        def upvote_article(
+                news_id,
+                db=Depends(session_opener),
+                user=Depends(authenticate_user_token),
+        ):
+            message = self.news_service.toggle_upvote(news_id, user.id, db)
+            return {"message": message}
+
+    def _register_price_routes(self):
+        """註冊價格相關的路由"""
+        @self.app.get("/api/v1/prices/necessities-price")
+        def get_necessities_prices(
+                category=Query(None), commodity=Query(None)
+        ):
+            return requests.get(
+                "https://opendata.ey.gov.tw/api/ConsumerProtection/NecessitiesPrice",
+                params={"CategoryName": category, "Name": commodity},
+            ).json()
+
+    # ----------------------------
+    # Helper methods
+    # ----------------------------
+    def _session_opener(self):
+        """保持原名稱與 generator 行為"""
+        session = Session(bind=engine)
+        try:
+            yield session
+        finally:
+            session.close()
+
+    def verify_password(self, plain_password, hashed_password):
+        return self.auth_service.verify_password(plain_password, hashed_password)
+
+    def authenticate_user(self, db, username, password):
+        return self.auth_service.authenticate_user(db, username, password)
+
+    def _authenticate_user_token(self, token: str = Depends(oauth2_scheme), db: Session = Depends(DatabaseManager(engine).session_opener)):
+        payload = jwt.decode(token, '1892dhianiandowqd0n', algorithms=["HS256"])
+        return db.query(User).filter(User.username == payload.get("sub")).first()
+
+    def create_access_token(self, data, expires_delta=None):
+        return self.auth_service.create_access_token(data, expires_delta=expires_delta)
+
+    def get_article_upvote_details(self, article_id, user_id, db):
+        return self.news_service.get_article_upvote_details(article_id, user_id, db)
+
+    def toggle_upvote(self, article_id, user_id, db):
+        return self.news_service.toggle_upvote(article_id, user_id, db)
+
+    def news_exists(self, news_id_2, db: Session):
+        return self.news_service.news_exists(news_id_2, db)
 
 
 # ----------------------------
-# 建立 class 實例
+# build class
 # ----------------------------
 db_manager = DatabaseManager(engine)
 auth_service = UserAuthService(db_manager)
 news_service = NewsService(db_manager)
 scheduler_service = SchedulerService(bgs, db_manager, news_service)
-app_factory = AppFactory(app, db_manager, auth_service, news_service, scheduler_service)
+api_route_manager = APIRouteManager(app, db_manager, auth_service, news_service)
 
 # ----------------------------
-# 以下保留所有原先的函數名稱（順序與名稱皆保留），但內部轉發到 class 方法
+# FastAPI on event
 # ----------------------------
-
-def add_news_article(news_data):
-    """
-    Add news article to database
-    :param news_data: news info dictionary
-    :return: None
-    """
-    return news_service.add_news_article(news_data)
-
-
-def fetch_raw_news_data(search_term, is_initial=False):
-    """
-    從新聞來源獲取原始新聞資料
-    :param search_term: 搜尋關鍵字
-    :param is_initial: 是否為初始化抓取
-    :return: 新聞資料列表
-    """
-    return news_service.fetch_raw_news_data(search_term, is_initial=is_initial)
-
-
-def process_and_store_news(is_initial=False):
-    """
-    Fetch and process news articles
-    :param is_initial: whether to fetch initial data
-    :return: None
-    """
-    return news_service.process_and_store_news(is_initial=is_initial)
-
-
 @app.on_event("startup")
 def start_scheduler():
-    return scheduler_service.start_scheduler()
+    scheduler_service.start_scheduler()
+    api_route_manager.register_routes()
 
 
 @app.on_event("shutdown")
 def shutdown_scheduler():
     return scheduler_service.shutdown_scheduler()
-
-
-def session_opener():
-    # 保持原名稱與 generator 行為
-    session = Session(bind=engine)
-    try:
-        yield session
-    finally:
-        session.close()
-
-
-def verify_password(plain_password, hashed_password):
-    return auth_service.verify_password(plain_password, hashed_password)
-
-
-def authenticate_user(db, username, password):
-    # 保持名稱與相同行為（與原本 authenticate_user 一樣）
-    return auth_service.authenticate_user(db, username, password)
-
-
-def authenticate_user_token(
-    token = Depends(oauth2_scheme),
-    db = Depends(session_opener)
-):
-    # 仍保留原本函數簽章（Depends 內容不變）
-    payload = jwt.decode(token, '1892dhianiandowqd0n', algorithms=["HS256"])
-    return db.query(User).filter(User.username == payload.get("sub")).first()
-
-
-def create_access_token(data, expires_delta=None):
-    """create access token"""
-    return auth_service.create_access_token(data, expires_delta=expires_delta)
-
-
-@app.post("/api/v1/users/login")
-async def login_for_access_token(
-        form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(session_opener)
-):
-    """login"""
-    user = authenticate_user(db, form_data.username, form_data.password)
-    access_token = create_access_token(
-        data={"sub": str(user.username)}, expires_delta=timedelta(minutes=30)
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
-
-
-class UserAuthSchema(BaseModel):
-    username: str
-    password: str
-
-@app.post("/api/v1/users/register")
-def create_user(user: UserAuthSchema, db: Session = Depends(session_opener)):
-    """create user"""
-    hashed_password = pwd_context.hash(user.password)
-    db_user = User(username=user.username, hashed_password=hashed_password)
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
-
-
-@app.get("/api/v1/users/me")
-def read_current_user(user=Depends(authenticate_user_token)):
-    """
-    讀取目前登入的使用者資訊
-    """
-    return {"username": user.username}
-
-
-def get_article_upvote_details(article_id, user_id, db):
-    return news_service.get_article_upvote_details(article_id, user_id, db)
-
-
-@app.get("/api/v1/news/news")
-def get_news_articles(db=Depends(session_opener)):
-    """
-    Get all news articles
-    :param db: database session
-    :return: list of news articles with upvote info
-    """
-    news_articles = db.query(NewsArticle).order_by(NewsArticle.time.desc()).all()
-    result = []
-    for article in news_articles:
-        upvotes_count, is_upvoted = get_article_upvote_details(article.id, None, db)
-        result.append(
-            {**article.__dict__, "upvotes": upvotes_count, "is_upvoted": is_upvoted}
-        )
-    return result
-
-
-@app.get(
-    "/api/v1/news/user_news"
-)
-def read_user_news(
-        db=Depends(session_opener),
-        user=Depends(authenticate_user_token)
-):
-    """
-    read user new
-
-    :param db:
-    :param u:
-    :return:
-    """
-    news = db.query(NewsArticle).order_by(NewsArticle.time.desc()).all()
-    result = []
-    for article in news:
-        upvotes, upvoted = get_article_upvote_details(article.id, user.id, db)
-        result.append(
-            {
-                **article.__dict__,
-                "upvotes": upvotes,
-                "is_upvoted": upvoted,
-            }
-        )
-    return result
-
-
-class PromptRequest(BaseModel):
-    prompt: str
-
-@app.post("/api/v1/news/search_news")
-async def search_news(request: PromptRequest):
-    prompt = request.prompt
-    return news_service.search_news(prompt)
-
-
-class NewsSummaryRequestSchema(BaseModel):
-    content: str
-
-@app.post("/api/v1/news/news_summary")
-async def news_summary(
-        payload: NewsSummaryRequestSchema, u=Depends(authenticate_user_token)
-):
-    response = news_service.news_summary(payload.content)
-    return response
-
-
-@app.post("/api/v1/news/{id}/upvote")
-def upvote_article(
-        news_id,
-        db=Depends(session_opener),
-        user=Depends(authenticate_user_token),
-):
-    message = news_service.toggle_upvote(news_id, user.id, db)
-    return {"message": message}
-
-
-def toggle_upvote(article_id, user_id, db):
-    return news_service.toggle_upvote(article_id, user_id, db)
-
-
-def news_exists(news_id_2, db: Session):
-    return news_service.news_exists(news_id_2, db)
-
-
-@app.get("/api/v1/prices/necessities-price")
-def get_necessities_prices(
-        category=Query(None), commodity=Query(None)
-):
-    return requests.get(
-        "https://opendata.ey.gov.tw/api/ConsumerProtection/NecessitiesPrice",
-        params={"CategoryName": category, "Name": commodity},
-    ).json()

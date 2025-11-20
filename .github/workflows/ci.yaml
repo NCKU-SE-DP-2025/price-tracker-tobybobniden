@@ -4,17 +4,13 @@ on:
   push:
     branches:
       - 'main'
-      - 'develope'
-      - 'Week_9_Homework_CI'
-      - 'Week_8_Homework_Modularize'
   pull_request:
     branches:
       - 'main'
-      - 'develope'
 
 jobs:
   test:
-    runs-on: [F74146848]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code

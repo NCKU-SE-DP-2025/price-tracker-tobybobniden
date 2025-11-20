@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
-from src.main import app
+from main import app
 
 client = TestClient(app)
 
@@ -29,7 +29,7 @@ def mock_necessities_data():
     ]
 
 
-@patch("src.api.v1.prices.service.requests.get")
+@patch("main.requests.get")
 def test_get_necessities_prices(mock_get, mock_necessities_data):
     mock_response = mock_get.return_value
     mock_response.status_code = 200
@@ -45,7 +45,7 @@ def test_get_necessities_prices(mock_get, mock_necessities_data):
     assert data[1]["產品名稱"] == "味全林鳳營鮮乳"
 
 
-@patch("src.api.v1.prices.service.requests.get")
+@patch("main.requests.get")
 def test_get_necessities_prices_with_query(mock_get, mock_necessities_data):
     mock_response = mock_get.return_value
     mock_response.status_code = 200

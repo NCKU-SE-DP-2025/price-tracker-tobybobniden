@@ -1,24 +1,21 @@
-# 使用官方 Python 鏡像作為基礎image
+# 使用官方 Python 映像作為基礎
 FROM python:3.10-slim
 
-# 設置工作目錄
+# 設定容器內的工作目錄
 WORKDIR /app
 
-# 將requirements.txt複製到容器内的工作目錄
-COPY requirements.txt .
-
-# 安裝dependencies
+# 複製 requirements.txt 並安裝依賴
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 將當前目錄複製到容器内的工作目錄
-COPY . .
+# 複製整個 backend 目錄進容器
+COPY backend/ .
 
-# 開啟端口
+# 確保 Python 可以找到 src 模組
+ENV PYTHONPATH=/app
+
+# 對外開放 8000 port
 EXPOSE 8000
 
-# 定義環境變量
-ENV MODULE_NAME="app.main"
-ENV VARIABLE_NAME="app"
-
-# 使用 uvicorn 運行 fastapi 應用
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 啟動 FastAPI 應用
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

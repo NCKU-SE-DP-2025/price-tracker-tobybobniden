@@ -11,15 +11,15 @@ services:
       - CHOKIDAR_USEPOLLING=true
     command: npm run serve
   backend:
-    build: ./backend
+    build:
+      context: . 
+      dockerfile: backend/dockerfile 
+    container_name: backend
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
     environment:
-      - MODULE_NAME=app.main
-      - VARIABLE_NAME=app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      - PYTHONPATH=/app
+    restart: unless-stopped
 
 
   sonarqube:

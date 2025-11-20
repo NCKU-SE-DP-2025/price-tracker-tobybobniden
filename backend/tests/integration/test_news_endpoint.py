@@ -4,24 +4,16 @@ from sqlalchemy import create_engine, StaticPool
 from sqlalchemy.orm import sessionmaker
 import json
 from jose import jwt
-from src.main import app
-from src.db.base import Base
-from src.db.models import User
-from src.db.session import get_db
-from src.api.v1.news.router import NewsArticle
-from src.api.v1.news.service import user_news_association_table
-from src.api.v1.news.schemas import NewsSummaryRequestSchema, PromptRequest
-from src.api.v1.news.service import NewsService
-from src.core.security import pwd_context
-
+from main import app
+from main import Base, NewsArticle, User, session_opener, user_news_association_table
+from main import NewsSumaryRequestSchema, PromptRequest
+from main import pwd_context
 from unittest.mock import Mock
-import os
 
-os.environ["TESTING"] = "1"  # 告訴應用使用測試資料庫
 
 SECRET_KEY = "1892dhianiandowqd0n"
 ALGORITHM = "HS256"
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}, poolclass=StaticPool)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base.metadata.create_all(bind=engine)
@@ -35,7 +27,7 @@ def override_session_opener():
         db.close()
 
 
-app.dependency_overrides[get_db] = override_session_opener
+app.dependency_overrides[session_opener] = override_session_opener
 client = TestClient(app)
 
 @pytest.fixture(scope="module")
@@ -95,7 +87,7 @@ def test_user_and_articles(test_user, test_articles):
 
 
 def test_read_news(test_articles):
-    response = client.get("/api/v1/news/")
+    response = client.get("/api/v1/news/news")
     assert response.status_code == 200
     json_response = response.json()
     assert len(json_response) == 2
@@ -117,7 +109,7 @@ def test_read_user_news(test_user, test_token, test_articles):
     assert json_response[1]["is_upvoted"] is False
 
 def mock_openai(mocker, return_content):
-    mock_openai_client = mocker.patch('src.api.v1.news.service.OpenAI')
+    mock_openai_client = mocker.patch('main.OpenAI')
 
     mock_message = Mock()
     mock_message.content = return_content
@@ -133,17 +125,13 @@ def mock_openai(mocker, return_content):
     return mock_openai_client
 
 def test_search_news(mocker):
-    mocker.patch('src.api.v1.news.service.OpenAI', return_value=mocker.Mock(
-        chat=mocker.Mock(
-            completions=mocker.Mock(
-                create=mocker.Mock(return_value=mocker.Mock(
-                    choices=[mocker.Mock(message=mocker.Mock(content="keywords"))]
-                ))
-            )
-        )
-    ))
+    mock_openai(mocker, "keywords")
 
-    mock_get = mocker.patch("src.api.v1.news.service.requests.get", return_value=mocker.Mock(
+    mock_get_new_info = mocker.patch("main.get_new_info", return_value=[
+        {"titleLink": "http://example.com/news1"}
+    ])
+
+    mock_get = mocker.patch("main.requests.get", return_value=mocker.Mock(
         text="""
         <html>
         <h1 class="article-content__title">Test Title</h1>
@@ -156,16 +144,24 @@ def test_search_news(mocker):
     ))
 
     request_body = {"prompt": "Test search prompt"}
+
     response = client.post("/api/v1/news/search_news", json=request_body)
 
     assert response.status_code == 200
 
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["title"] == "Test Title"
+    assert data[0]["time"] == "2024-09-10"
+    assert data[0]["content"] == "This is a test paragraph."
+
+
 def test_news_summary(mocker, test_token):
     headers = {"Authorization": f"Bearer {test_token}"}
-    mocker.patch.object(NewsService, 'news_summary',
-                       return_value={"summary": "test impact", "reason": "test reason"})
+    openai_response = json.dumps({"影響": "test impact", "原因": "test reason"})
+    mock_openai(mocker, openai_response)
 
-    request_body = NewsSummaryRequestSchema(content="Test news content")
+    request_body = NewsSumaryRequestSchema(content="Test news content")
     response = client.post("/api/v1/news/news_summary", json=request_body.dict(), headers=headers)
 
     assert response.status_code == 200

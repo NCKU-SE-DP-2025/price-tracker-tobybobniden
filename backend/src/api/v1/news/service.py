@@ -1,20 +1,25 @@
 import json
 import requests
 from bs4 import BeautifulSoup
-from openai import OpenAI
 from urllib.parse import quote
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import delete, insert, select
-from src.core.config import settings
 from src.db.models import NewsArticle, user_news_association_table
+from src.db.session import engine
+from src.api.v1.ai.service import AIService 
+
+SessionLocal = sessionmaker(bind=engine)
 
 
 class NewsService:
-    def __init__(self):
-        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    """將新聞抓取、處理、儲存與搜尋等邏輯包裝"""
+
+    def __init__(self, ai_service: AIService, db: Session = None): 
+        self.ai_service = ai_service
+        self.db = db or SessionLocal()
 
     def add_news_article(self, news_data: dict) -> NewsArticle:
-        session = Session()
+        session = SessionLocal()
         article = NewsArticle(
             url=news_data["url"],
             title=news_data["title"],
@@ -29,15 +34,15 @@ class NewsService:
         session.close()
         return article
 
-    def get_article_upvote_details(self, db: Session, article_id: int, user_id: int = None):
-        count = db.query(user_news_association_table).filter_by(news_articles_id=article_id).count()
+    def get_article_upvote_details(self, article_id: int, user_id: int = None):
+        count = self.db.query(user_news_association_table).filter_by(news_articles_id=article_id).count()
         voted = False
         if user_id:
-            voted = db.query(user_news_association_table).filter_by(news_articles_id=article_id, user_id=user_id).first() is not None
+            voted = self.db.query(user_news_association_table).filter_by(news_articles_id=article_id, user_id=user_id).first() is not None
         return count, voted
 
-    def toggle_upvote(self, db: Session, article_id: int, user_id: int) -> str:
-        existing_upvote = db.execute(
+    def toggle_upvote(self, article_id: int, user_id: int) -> str:
+        existing_upvote = self.db.execute(
             select(user_news_association_table).where(
                 user_news_association_table.c.news_articles_id == article_id,
                 user_news_association_table.c.user_id == user_id,
@@ -49,32 +54,21 @@ class NewsService:
                 user_news_association_table.c.news_articles_id == article_id,
                 user_news_association_table.c.user_id == user_id,
             )
-            db.execute(delete_stmt)
-            db.commit()
+            self.db.execute(delete_stmt)
+            self.db.commit()
             return "Upvote removed"
         else:
             insert_stmt = insert(user_news_association_table).values(
                 news_articles_id=article_id, user_id=user_id
             )
-            db.execute(insert_stmt)
-            db.commit()
+            self.db.execute(insert_stmt)
+            self.db.commit()
             return "Article upvoted"
 
     def search_news(self, prompt: str) -> list:
+        """使用 OpenAI 提取關鍵字後搜尋新聞"""
         try:
-            message = [
-                {
-                    "role": "system",
-                    "content": "你是一個關鍵字提取機器人，用戶將會輸入一段文字，表示其希望看見的新聞內容，請提取出用戶希望看見的關鍵字，請截取最重要的關鍵字即可，避免出現「新聞」、「資訊」等混淆搜尋引擎的字詞。(僅須回答關鍵字，若有多個關鍵字，請以空格分隔)",
-                },
-                {"role": "user", "content": f"{prompt}"},
-            ]
-
-            completion = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=message,
-            )
-            keywords = completion.choices[0].message.content
+            keywords = self.ai_service.extract_keywords(prompt)
             news_items = self._fetch_raw_news_data(keywords, is_initial=False)
             news_list = []
             
@@ -109,48 +103,19 @@ class NewsService:
             return []
 
     def news_summary(self, content: str) -> dict:
-        try:
-            message = [
-                {
-                    "role": "system",
-                    "content": "你是一個新聞摘要生成機器人，請統整新聞中提及的影響及主要原因 (影響、原因各50個字，請以json格式回答 {'影響': '...', '原因': '...'})",
-                },
-                {"role": "user", "content": f"{content}"},
-            ]
-
-            completion = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=message,
-            )
-            result = completion.choices[0].message.content
-            if result:
-                result = json.loads(result)
-                return {"summary": result.get("影響", ""), "reason": result.get("原因", "")}
-            return {"summary": "", "reason": ""}
-        except Exception as e:
-            print(f"Error in news_summary: {e}")
-            return {"summary": "", "reason": ""}
+        """生成新聞摘要"""
+        return self.ai_service.generate_summary(content)
 
     def process_and_store_news(self, is_initial: bool = False) -> None:
+        """抓取、處理並儲存新聞"""
         try:
-            session = Session()
+            session = SessionLocal()
             news_data = self._fetch_raw_news_data("價格", is_initial=is_initial)
+            
             for news in news_data:
                 title = news.get("title", "")
                 
-                prompt_message = [
-                    {
-                        "role": "system",
-                        "content": "你是一個關鍵度評估機器人，請評估新聞標題是否與「民生用品的價格變化」相關，並給予'high'、'medium'、'low'評價。(僅需回答'high'、'medium'、'low'三個詞之一)",
-                    },
-                    {"role": "user", "content": f"{title}"},
-                ]
-                
-                ai = self.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=prompt_message,
-                )
-                relevance = ai.choices[0].message.content.strip()
+                relevance = self.ai_service.evaluate_relevance(title)
                 
                 if relevance == "high":
                     try:
@@ -174,26 +139,15 @@ class NewsService:
                             "content": paragraphs,
                         }
                         
-                        prompt_message = [
-                            {
-                                "role": "system",
-                                "content": "你是一個新聞摘要生成機器人，請統整新聞中提及的影響及主要原因 (影響、原因各50個字，請以json格式回答 {'影響': '...', '原因': '...'})",
-                            },
-                            {"role": "user", "content": " ".join(detailed_news["content"])},
-                        ]
-
-                        completion = self.openai_client.chat.completions.create(
-                            model="gpt-3.5-turbo",
-                            messages=prompt_message,
-                        )
-                        result = completion.choices[0].message.content
-                        result = json.loads(result)
-                        detailed_news["summary"] = result.get("影響", "")
-                        detailed_news["reason"] = result.get("原因", "")
+                        summary_result = self.ai_service.generate_summary(" ".join(detailed_news["content"]))  # ✅ 改：使用 AIService
+                        detailed_news["summary"] = summary_result.get("summary", "")
+                        detailed_news["reason"] = summary_result.get("reason", "")
                         
                         self.add_news_article(detailed_news)
+                        print(f"Saved article: {title}")
                     except Exception as e:
                         print(f"Error processing article: {e}")
+            session.close()
         except Exception as e:
             print(f"Error in process_and_store_news: {e}")
 
@@ -201,6 +155,7 @@ class NewsService:
         try:
             all_news_data = []
             if is_initial:
+                page_results = []
                 for page_num in range(1, 10):
                     query_params = {
                         "page": page_num,
@@ -208,8 +163,11 @@ class NewsService:
                         "channelId": 2,
                         "type": "searchword",
                     }
-                    response = requests.get("https://udn.com/api/more", params=query_params, timeout=10)
-                    all_news_data.extend(response.json()["lists"])
+                    response = requests.get("https://udn.com/api/more", params=query_params)
+                    page_results.append(response.json()["lists"])
+
+                for news_list in page_results:
+                    all_news_data.extend(news_list)
             else:
                 query_params = {
                     "page": 1,
@@ -217,7 +175,7 @@ class NewsService:
                     "channelId": 2,
                     "type": "searchword",
                 }
-                response = requests.get("https://udn.com/api/more", params=query_params, timeout=10)
+                response = requests.get("https://udn.com/api/more", params=query_params)
                 all_news_data = response.json().get("lists", [])
             
             return all_news_data

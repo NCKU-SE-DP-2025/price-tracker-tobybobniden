@@ -4,6 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from src.core.config import settings
+from src.api.v1.auth.router import router as auth_router
+from src.api.v1.news.router import router as news_router
+from src.api.v1.prices.router import router as prices_router
+from src.api.v1.ai.service import AIService
+from src.api.v1.news.service import NewsService
+from src.services.scheduler_service import SchedulerService
 
 if settings.SENTRY_DSN:
     sentry_sdk.init(
@@ -28,27 +34,16 @@ async def health_check():
     return {"status": "ok"}
 
 
-# 導入並註冊路由
 from src.api.v1.auth.router import router as auth_router
 from src.api.v1.news.router import router as news_router
 from src.api.v1.prices.router import router as prices_router
-from src.api.v1.news.service import NewsService
-from src.services.scheduler_service import SchedulerService
 
-print(f"Registering routers...")
 app.include_router(auth_router, prefix="/api/v1")
-print(f"✓ auth_router registered")
 app.include_router(news_router, prefix="/api/v1")
-print(f"✓ news_router registered")
 app.include_router(prices_router, prefix="/api/v1")
-print(f"✓ prices_router registered")
 
-print(f"\nTotal routes: {len(app.routes)}")
-for route in app.routes:
-    if hasattr(route, 'methods'):
-        print(f"  {route.methods}: {route.path}")
-
-news_service = NewsService()
+ai_service = AIService(settings.OPENAI_API_KEY)
+news_service = NewsService(ai_service)
 scheduler_service = SchedulerService(bgs, news_service)
 
 

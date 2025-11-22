@@ -116,33 +116,11 @@ def test_read_user_news(test_user, test_token, test_articles):
     assert json_response[1]["title"] == "Test News 1"
     assert json_response[1]["is_upvoted"] is False
 
-def mock_openai(mocker, return_content):
-    mock_openai_client = mocker.patch('src.api.v1.news.service.OpenAI')
-
-    mock_message = Mock()
-    mock_message.content = return_content
-
-    mock_choice = Mock()
-    mock_choice.message = mock_message
-
-    mock_completion = Mock()
-    mock_completion.choices = [mock_choice]
-
-    mock_openai_client.return_value.chat.completions.create.return_value = mock_completion
-
-    return mock_openai_client
-
 def test_search_news(mocker):
-    mocker.patch('src.api.v1.news.service.OpenAI', return_value=mocker.Mock(
-        chat=mocker.Mock(
-            completions=mocker.Mock(
-                create=mocker.Mock(return_value=mocker.Mock(
-                    choices=[mocker.Mock(message=mocker.Mock(content="keywords"))]
-                ))
-            )
-        )
-    ))
-
+    # Mock AIService methods
+    mocker.patch('src.api.v1.ai.service.AIService.extract_keywords', return_value="keywords")
+    
+    # Mock requests.get for HTML parsing
     mock_get = mocker.patch("src.api.v1.news.service.requests.get", return_value=mocker.Mock(
         text="""
         <html>
@@ -154,6 +132,10 @@ def test_search_news(mocker):
         </html>
         """
     ))
+    
+    # Mock _fetch_raw_news_data
+    mocker.patch('src.api.v1.news.service.NewsService._fetch_raw_news_data', 
+                 return_value=[{"titleLink": "https://example.com/news", "title": "Test"}])
 
     request_body = {"prompt": "Test search prompt"}
     response = client.post("/api/v1/news/search_news", json=request_body)

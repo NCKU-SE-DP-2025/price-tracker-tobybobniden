@@ -5,6 +5,12 @@ from src.api.v1.prices.service import PriceService
 router = APIRouter(prefix="/prices", tags=["prices"])
 
 
+@router.get("/commodities")
+async def get_commodities():
+    """Get all available commodities by category"""
+    return PriceService.get_commodities()
+
+
 @router.get("/necessities-price")
 async def get_necessities_prices(
     category: Optional[str] = Query(None),

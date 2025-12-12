@@ -9,6 +9,8 @@ from src.db.models import NewsArticle
 from sqlalchemy.orm import Session
 
 
+from src.crawler.utils import handle_crawler_exceptions
+
 class UDNCrawler(NewsCrawlerBase):
     """Crawler for UDN (聯合新聞網) news articles"""
     
@@ -23,25 +25,12 @@ class UDNCrawler(NewsCrawlerBase):
         """
         self.timeout = timeout
     
+    @handle_crawler_exceptions
     def _perform_request(self, params: dict):
-        """Perform HTTP request to UDN API
-        
-        Args:
-            params: Query parameters for the API
-            
-        Returns:
-            Response object from requests library
-            
-        Raises:
-            Exception: If request fails
-        """
-        try:
-            response = requests.get("https://udn.com/api/more", params=params, timeout=self.timeout)
-            response.raise_for_status()
-            return response
-        except Exception as e:
-            print(f"Error performing request: {e}")
-            raise
+        response = requests.get("https://udn.com/api/more", params=params, timeout=self.timeout)
+        response.raise_for_status()
+        return response
+
     
     def _create_search_params(self, page: int, search_term: str) -> dict:
         """Create search parameters for UDN API

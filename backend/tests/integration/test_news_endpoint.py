@@ -13,6 +13,7 @@ from src.api.v1.news.service import user_news_association_table
 from src.api.v1.news.schemas import NewsSummaryRequestSchema, PromptRequest
 from src.api.v1.news.service import NewsService
 from src.core.security import pwd_context
+from src.crawler.base import Headline, News
 
 from unittest.mock import Mock
 import os
@@ -116,44 +117,21 @@ def test_read_user_news(test_user, test_token, test_articles):
     assert json_response[1]["title"] == "Test News 1"
     assert json_response[1]["is_upvoted"] is False
 
-def mock_openai(mocker, return_content):
-    mock_openai_client = mocker.patch('src.api.v1.news.service.OpenAI')
-
-    mock_message = Mock()
-    mock_message.content = return_content
-
-    mock_choice = Mock()
-    mock_choice.message = mock_message
-
-    mock_completion = Mock()
-    mock_completion.choices = [mock_choice]
-
-    mock_openai_client.return_value.chat.completions.create.return_value = mock_completion
-
-    return mock_openai_client
-
 def test_search_news(mocker):
-    mocker.patch('src.api.v1.news.service.OpenAI', return_value=mocker.Mock(
-        chat=mocker.Mock(
-            completions=mocker.Mock(
-                create=mocker.Mock(return_value=mocker.Mock(
-                    choices=[mocker.Mock(message=mocker.Mock(content="keywords"))]
-                ))
-            )
-        )
-    ))
-
-    mock_get = mocker.patch("src.api.v1.news.service.requests.get", return_value=mocker.Mock(
-        text="""
-        <html>
-        <h1 class="article-content__title">Test Title</h1>
-        <time class="article-content__time">2024-09-10</time>
-        <section class="article-content__editor">
-            <p>This is a test paragraph.</p>
-        </section>
-        </html>
-        """
-    ))
+    # Mock AIService methods
+    mocker.patch('src.api.v1.ai.service.AIService.extract_keywords', return_value="keywords")
+    
+    # Mock Crawler methods
+    mocker.patch('src.crawler.udn_crawler.UDNCrawler.get_headline', 
+                 return_value=[Headline(title="Test", url="https://example.com/news")])
+    
+    mocker.patch('src.crawler.udn_crawler.UDNCrawler.parse',
+                 return_value=News(
+                     title="Test Title",
+                     url="https://example.com/news",
+                     time="2024-09-10",
+                     content="This is a test paragraph."
+                 ))
 
     request_body = {"prompt": "Test search prompt"}
     response = client.post("/api/v1/news/search_news", json=request_body)

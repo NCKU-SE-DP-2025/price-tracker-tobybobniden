@@ -23,18 +23,47 @@ export const usePricesStore = defineStore('prices', {
                 this.categories[category] = [];
             });
             try {
-                const response = await axios.get('http://localhost:8000/api/v1/prices/necessities-price');
-                let data = response.data;
+                // Fetch prices for each category
+                const categoryNames = Object.values(Categories);
+                
+                for (const categoryName of categoryNames) {
+                    try {
+                        const response = await axios.get('http://localhost:8000/api/v1/prices/necessities-price', {
+                            params: {
+                                CategoryName: categoryName
+                            }
+                        });
+                        
+                        let data = response.data;
 
+                        // Check if data is an error response
+                        if (data && typeof data === 'object' && data.error) {
+                            console.warn(`Error fetching ${categoryName}: ${data.error}`);
+                            continue;
+                        }
 
-                data.forEach(item => {
-                    const categoryKey = Object.keys(Categories).find(
-                        key => Categories[key] === item.類別
-                    );
-                    if (categoryKey) {
-                        this.categories[categoryKey].push(item);
+                        // Ensure data is an array
+                        if (!Array.isArray(data)) {
+                            console.warn(`Invalid data format for ${categoryName}: expected array`);
+                            continue;
+                        }
+
+                        // Process the data
+                        data.forEach(item => {
+                            const categoryKey = Object.keys(Categories).find(
+                                key => Categories[key] === item.類別
+                            );
+                            if (categoryKey) {
+                                this.categories[categoryKey].push(item);
+                            }
+                        });
+                    } catch (categoryError) {
+                        console.warn(`Error fetching prices for ${categoryName}:`, categoryError.message);
+                        // Continue with next category instead of failing entirely
+                        continue;
                     }
-                });
+                }
+                
                 this.updatedTime = new Date();
                 this.updatedTime = this.updatedTime.toLocaleString('zh-TW', {
                     year: 'numeric',

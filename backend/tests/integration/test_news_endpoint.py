@@ -13,6 +13,7 @@ from src.api.v1.news.service import user_news_association_table
 from src.api.v1.news.schemas import NewsSummaryRequestSchema, PromptRequest
 from src.api.v1.news.service import NewsService
 from src.core.security import pwd_context
+from src.crawler.base import Headline, News
 
 from unittest.mock import Mock
 import os
@@ -120,22 +121,17 @@ def test_search_news(mocker):
     # Mock AIService methods
     mocker.patch('src.api.v1.ai.service.AIService.extract_keywords', return_value="keywords")
     
-    # Mock requests.get for HTML parsing
-    mock_get = mocker.patch("src.api.v1.news.service.requests.get", return_value=mocker.Mock(
-        text="""
-        <html>
-        <h1 class="article-content__title">Test Title</h1>
-        <time class="article-content__time">2024-09-10</time>
-        <section class="article-content__editor">
-            <p>This is a test paragraph.</p>
-        </section>
-        </html>
-        """
-    ))
+    # Mock Crawler methods
+    mocker.patch('src.crawler.udn_crawler.UDNCrawler.get_headline', 
+                 return_value=[Headline(title="Test", url="https://example.com/news")])
     
-    # Mock _fetch_raw_news_data
-    mocker.patch('src.api.v1.news.service.NewsService._fetch_raw_news_data', 
-                 return_value=[{"titleLink": "https://example.com/news", "title": "Test"}])
+    mocker.patch('src.crawler.udn_crawler.UDNCrawler.parse',
+                 return_value=News(
+                     title="Test Title",
+                     url="https://example.com/news",
+                     time="2024-09-10",
+                     content="This is a test paragraph."
+                 ))
 
     request_body = {"prompt": "Test search prompt"}
     response = client.post("/api/v1/news/search_news", json=request_body)
